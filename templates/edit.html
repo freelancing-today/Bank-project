@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edit Loan Entry</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .btn {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .btn:hover {
+            background-color: #45a049;
+        }
+        .row {
+            display: flex;
+            gap: 15px;
+        }
+        .col {
+            flex: 1;
+        }
+        .btn-back {
+            background-color: #f0ad4e;
+            color: white;
+            padding: 8px 15px;
+            text-decoration: none;
+            border-radius: 4px;
+            display: inline-block;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Edit Loan Entry</h1>
+        <form action="/update/{{ index }}" method="post">
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="customerRef">Customer Reference Number:</label>
+                        <input type="text" id="customerRef" name="customerRef" value="{{ entry['Customer Reference Number'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="customerName">Customer Name:</label>
+                        <input type="text" id="customerName" name="customerName" value="{{ entry['Customer Name'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="cityState">City, State:</label>
+                        <input type="text" id="cityState" name="cityState" value="{{ entry['City, State'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="purchaseValue">Purchase Value (in words):</label>
+                        <input type="text" id="purchaseValue" name="purchaseValue" value="{{ entry['Purchase Value (in words)'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="purchaseReduction">Purchase Value Reduction (%):</label>
+                        <input type="number" id="purchaseReduction" name="purchaseReduction" step="0.01" min="0" max="100" value="{{ entry['Purchase Value Reduction (%)'] }}" required>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="downPayment">Down Payment (%):</label>
+                        <input type="number" id="downPayment" name="downPayment" step="0.01" min="0" max="100" value="{{ entry['Down Payment (%)'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="loanPeriod">Loan Period (Years):</label>
+                        <input type="number" id="loanPeriod" name="loanPeriod" min="1" value="{{ entry['Loan Period (Years)'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="annualInterest">Annual Interest Rate (%):</label>
+                        <input type="number" id="annualInterest" name="annualInterest" step="0.01" min="0" value="{{ entry['Annual Interest Rate (%)'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="monthlyPrincipalReduction">Monthly Principal Reduction (%):</label>
+                        <input type="number" id="monthlyPrincipalReduction" name="monthlyPrincipalReduction" step="0.01" min="0" max="100" value="{{ entry['Monthly Principal Reduction (%)'] }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="totalInterestReduction">Total Interest Reduction (%):</label>
+                        <input type="number" id="totalInterestReduction" name="totalInterestReduction" step="0.01" min="0" max="100" value="{{ entry['Total Interest Reduction (%)'] }}" required>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col">
+                    <div class="form-group">
+                        <label for="guarantorName">Guarantor Name:</label>
+                        <input type="text" id="guarantorName" name="guarantorName" value="{{ entry['Guarantor Name'] }}" required>
+                    </div>
+                </div>
+                <div class="col">
+                    <div class="form-group">
+                        <label for="guarantorRef">Guarantor Reference Number:</label>
+                        <input type="text" id="guarantorRef" name="guarantorRef" value="{{ entry['Guarantor Reference Number'] }}" required>
+                    </div>
+                </div>
+            </div>
+            <div class="form-group" style="text-align: center;">
+                <button type="submit" class="btn">Update</button>
+                <a href="/submit" class="btn-back">Cancel</a>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

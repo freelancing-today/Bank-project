@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loan Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .message {
+            padding: 10px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        .actions {
+            white-space: nowrap;
+        }
+        .btn {
+            padding: 5px 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
+            margin-right: 5px;
+        }
+        .btn-edit {
+            background-color: #337ab7;
+            color: white;
+        }
+        .btn-delete {
+            background-color: #d9534f;
+            color: white;
+        }
+        .btn-download {
+            background-color: #5cb85c;
+            color: white;
+            padding: 8px 15px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+        .btn-back {
+            background-color: #f0ad4e;
+            color: white;
+            padding: 8px 15px;
+            display: inline-block;
+            margin-top: 20px;
+        }
+        .text-center {
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Loan Data</h1>
+        
+        {% if message %}
+        <div class="message {% if 'success' in message|lower %}success{% else %}error{% endif %}">
+            {{ message }}
+        </div>
+        {% endif %}
+        
+        {% if entries %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Ref Number</th>
+                    <th>Customer Name</th>
+                    <th>City, State</th>
+                    <th>Purchase & Down</th>
+                    <th>Loan Period & Interest</th>
+                    <th>Loan Amount</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                <tr>
+                    <td>{{ entry['Customer Reference Number'] }}</td>
+                    <td>{{ entry['Customer Name'] }}</td>
+                    <td>{{ entry['City, State'] }}</td>
+                    <td>{{ entry['Purchase Value and Down Payment'] }}</td>
+                    <td>{{ entry['Loan Period and Annual Interest'] }}</td>
+                    <td>{{ entry['Loan amount and principal'] }}</td>
+                    <td class="actions">
+                        <a href="/edit/{{ loop.index0 }}" class="btn btn-edit">Edit</a>
+                        <a href="/delete/{{ loop.index0 }}" class="btn btn-delete">Delete</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No loan entries found.</p>
+        {% endif %}
+        
+        <div class="text-center">
+            <a href="/" class="btn btn-back">Back to Form</a>
+            <a href="/download" class="btn btn-download">Download Excel</a>
+        </div>
+    </div>
+</body>
+</html>
