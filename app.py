@@ -9,6 +9,7 @@ from datetime import datetime
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['EXCEL_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx')
+app.config['BACKUP_EXCEL_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'customer_loans_backup.xlsx')
 app.config['TIME_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'submission_times.json')
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -17,30 +18,54 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 getcontext().prec = 10
 
 def load_data():
-    if os.path.exists(app.config['EXCEL_FILE']):
-        # Load main data
-        df = pd.read_excel(app.config['EXCEL_FILE'])
-        entries = df.to_dict('records')
-        
-        # Load submission times
-        if os.path.exists(app.config['TIME_FILE']):
+    entries = []
+    times = []
+    
+    # Try to load times first
+    if os.path.exists(app.config['TIME_FILE']):
+        try:
             with open(app.config['TIME_FILE'], 'r') as f:
                 times = json.load(f)
-        else:
+        except (json.JSONDecodeError, IOError):
             times = []
-        
-        # Merge with entries
-        for i, entry in enumerate(entries):
-            if i < len(times):
-                entry['SubmissionDateTime'] = times[i]
-            else:
-                # For entries without stored time, use current time
-                entry['SubmissionDateTime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        return entries
-    return []
+    
+    # Try to load Excel data
+    if os.path.exists(app.config['EXCEL_FILE']):
+        try:
+            df = pd.read_excel(app.config['EXCEL_FILE'])
+            entries = df.to_dict('records')
+        except Exception as e:
+            print(f"Error loading Excel file: {str(e)}")
+            # Try backup file if main file is corrupted
+            if os.path.exists(app.config['BACKUP_EXCEL_FILE']):
+                try:
+                    df = pd.read_excel(app.config['BACKUP_EXCEL_FILE'])
+                    entries = df.to_dict('records')
+                except Exception as backup_e:
+                    print(f"Error loading backup Excel file: {str(backup_e)}")
+                    entries = []
+    
+    # Merge with entries
+    for i, entry in enumerate(entries):
+        if i < len(times):
+            entry['SubmissionDateTime'] = times[i]
+        else:
+            # For entries without stored time, use current time
+            entry['SubmissionDateTime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    return entries
 
 def save_data(entries):
+    if not entries:
+        return
+    
+    # Create backup of current file if it exists
+    if os.path.exists(app.config['EXCEL_FILE']):
+        try:
+            os.replace(app.config['EXCEL_FILE'], app.config['BACKUP_EXCEL_FILE'])
+        except Exception as e:
+            print(f"Error creating backup: {str(e)}")
+    
     # Separate data and times
     data_to_save = []
     times_to_save = []
@@ -53,15 +78,30 @@ def save_data(entries):
         times_to_save.append(time)
     
     # Save main data
-    df = pd.DataFrame(data_to_save)
-    df.to_excel(app.config['EXCEL_FILE'], index=False)
+    try:
+        df = pd.DataFrame(data_to_save)
+        df.to_excel(app.config['EXCEL_FILE'], index=False)
+    except Exception as e:
+        print(f"Error saving Excel file: {str(e)}")
+        # Try to restore from backup if save failed
+        if os.path.exists(app.config['BACKUP_EXCEL_FILE']):
+            try:
+                os.replace(app.config['BACKUP_EXCEL_FILE'], app.config['EXCEL_FILE'])
+            except Exception as restore_e:
+                print(f"Error restoring from backup: {str(restore_e)}")
+        raise
     
     # Save times separately
-    with open(app.config['TIME_FILE'], 'w') as f:
-        json.dump(times_to_save, f)
+    try:
+        with open(app.config['TIME_FILE'], 'w') as f:
+            json.dump(times_to_save, f)
+    except Exception as e:
+        print(f"Error saving times file: {str(e)}")
 
 def format_reference_number(ref_num):
     """Format reference number according to business rules"""
+    if not isinstance(ref_num, str):
+        ref_num = str(ref_num)
     cleaned = re.sub(r'\s+', '', ref_num)
     if ' ' in ref_num:
         return '   '.join(cleaned)
@@ -69,6 +109,8 @@ def format_reference_number(ref_num):
 
 def format_name(name):
     """Format name according to business rules"""
+    if not isinstance(name, str):
+        name = str(name)
     name = name.upper()
     parts = re.split(r'\.|\s+', name)
     parts = [p for p in parts if p]
@@ -78,6 +120,8 @@ def format_name(name):
 
 def format_city_state(city_state):
     """Format city and state according to business rules"""
+    if not isinstance(city_state, str):
+        city_state = str(city_state)
     city_state = city_state.upper()
     if 'DC' in city_state:
         return 'NA'
@@ -88,6 +132,9 @@ def format_city_state(city_state):
 
 def words_to_number(words):
     """Convert written numbers to numeric values"""
+    if not isinstance(words, str):
+        return 0
+    
     word_to_num = {
         'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
         'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
@@ -125,45 +172,51 @@ def format_currency(value):
     if pd.isna(value) or value == 0:
         return "NA"
     
-    value = Decimal(str(value))
-    int_part = int(value)
-    dec_part = value - int_part
-    
-    str_value = f"{int_part:,}"
-    parts = str_value.split(',')
-    
-    formatted_parts = []
-    for i, part in enumerate(parts):
-        if len(parts) - i == 4:
-            formatted_parts.append(f"  {part}  ,")
-        elif len(parts) - i == 3:
-            formatted_parts.append(f"  {part}  ,")
-        elif len(parts) - i == 2:
-            formatted_parts.append(f"  {part}  ,")
-        else:
-            formatted_parts.append(part)
-    
-    formatted_int = ''.join(formatted_parts).strip(',')
-    formatted_dec = f"{dec_part:.2f}"[1:] if dec_part else ".00"
-    
-    return f"$  {formatted_int}{formatted_dec}"
+    try:
+        value = Decimal(str(value))
+        int_part = int(value)
+        dec_part = value - int_part
+        
+        str_value = f"{int_part:,}"
+        parts = str_value.split(',')
+        
+        formatted_parts = []
+        for i, part in enumerate(parts):
+            if len(parts) - i == 4:
+                formatted_parts.append(f"  {part}  ,")
+            elif len(parts) - i == 3:
+                formatted_parts.append(f"  {part}  ,")
+            elif len(parts) - i == 2:
+                formatted_parts.append(f"  {part}  ,")
+            else:
+                formatted_parts.append(part)
+        
+        formatted_int = ''.join(formatted_parts).strip(',')
+        formatted_dec = f"{dec_part:.2f}"[1:] if dec_part else ".00"
+        
+        return f"$  {formatted_int}{formatted_dec}"
+    except:
+        return "NA"
 
 def calculate_loan_details(data):
     """Perform all loan calculations based on input data"""
     try:
-        purchase_value_words = data['Purchase Value (in words)']
+        # Convert all input values to strings first to handle potential numeric inputs
+        str_data = {k: str(v) if v is not None else "" for k, v in data.items()}
+        
+        purchase_value_words = str_data['Purchase Value (in words)']
         purchase_value = Decimal(words_to_number(purchase_value_words))
         
-        purchase_reduction = Decimal(data['Purchase Value Reduction (%)']) / 100
-        down_payment = Decimal(data['Down Payment (%)']) / 100
-        loan_period = Decimal(data['Loan Period (Years)'])
-        annual_interest = Decimal(data['Annual Interest Rate (%)']) / 100
-        monthly_principal_reduction = Decimal(data['Monthly Principal Reduction (%)']) / 100
-        total_interest_reduction = Decimal(data['Total Interest Reduction (%)']) / 100
+        purchase_reduction = Decimal(str_data['Purchase Value Reduction (%)']) / 100
+        down_payment = Decimal(str_data['Down Payment (%)']) / 100
+        loan_period = Decimal(str_data['Loan Period (Years)'])
+        annual_interest = Decimal(str_data['Annual Interest Rate (%)']) / 100
+        monthly_principal_reduction = Decimal(str_data['Monthly Principal Reduction (%)']) / 100
+        total_interest_reduction = Decimal(str_data['Total Interest Reduction (%)']) / 100
         
-        reduced_purchase_value = purchase_value * purchase_reduction
+        reduced_purchase_value = purchase_value * (1 - purchase_reduction)
         reduced_purchase_value = reduced_purchase_value.quantize(Decimal('0.01'))
-        purchase_value_to_enter = purchase_value - reduced_purchase_value
+        purchase_value_to_enter = purchase_value * purchase_reduction
         
         downpayment_value = purchase_value_to_enter * down_payment
         downpayment_value = downpayment_value.quantize(Decimal('0.01'))
@@ -223,23 +276,23 @@ def calculate_loan_details(data):
         
         formatted_results = {
             'SubmissionDateTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'Customer Reference Number': format_reference_number(data['Customer Reference Number']),
-            'Customer Name': format_name(data['Customer Name']),
-            'City, State': format_city_state(data['City, State']),
+            'Customer Reference Number': format_reference_number(str_data['Customer Reference Number']),
+            'Customer Name': format_name(str_data['Customer Name']),
+            'City, State': format_city_state(str_data['City, State']),
             'Purchase Value and Down Payment': f"{format_currency(purchase_value_to_enter)} AND {int(down_payment*100)}%",
             'Loan Period and Annual Interest': f"{int(loan_period)} YEARS AND {annual_interest*100:.2f}%",
-            'Guarantor Name': format_name(data['Guarantor Name']),
-            'Guarantor Reference Number': format_reference_number(data['Guarantor Reference Number']),
+            'Guarantor Name': format_name(str_data['Guarantor Name']),
+            'Guarantor Reference Number': format_reference_number(str_data['Guarantor Reference Number']),
             'Loan amount and principal': f"{format_currency(loan_amount)} AND {format_currency(principal_to_enter)}",
             'Total Interest for Loan Period and Property tax for Loan Period': f"{format_currency(total_interest_to_enter)} AND NA",
             'Property Insurance per month and PMI per annum': f"{format_currency(property_insurance_month)} AND {pmi_annum if isinstance(pmi_annum, str) else format_currency(pmi_annum)}",
-            'Purchase Value (in words)': data['Purchase Value (in words)'],
-            'Purchase Value Reduction (%)': data['Purchase Value Reduction (%)'],
-            'Down Payment (%)': data['Down Payment (%)'],
-            'Loan Period (Years)': data['Loan Period (Years)'],
-            'Annual Interest Rate (%)': data['Annual Interest Rate (%)'],
-            'Monthly Principal Reduction (%)': data['Monthly Principal Reduction (%)'],
-            'Total Interest Reduction (%)': data['Total Interest Reduction (%)'],
+            'Purchase Value (in words)': str_data['Purchase Value (in words)'],
+            'Purchase Value Reduction (%)': str_data['Purchase Value Reduction (%)'],
+            'Down Payment (%)': str_data['Down Payment (%)'],
+            'Loan Period (Years)': str_data['Loan Period (Years)'],
+            'Annual Interest Rate (%)': str_data['Annual Interest Rate (%)'],
+            'Monthly Principal Reduction (%)': str_data['Monthly Principal Reduction (%)'],
+            'Total Interest Reduction (%)': str_data['Total Interest Reduction (%)'],
         }
         
         return formatted_results
@@ -257,18 +310,18 @@ def submit():
     if request.method == 'POST':
         try:
             raw_data = {
-                'Customer Reference Number': request.form['customerRef'],
-                'Customer Name': request.form['customerName'],
-                'City, State': request.form['cityState'],
-                'Purchase Value (in words)': request.form['purchaseValue'],
-                'Purchase Value Reduction (%)': request.form['purchaseReduction'],
-                'Down Payment (%)': request.form['downPayment'],
-                'Loan Period (Years)': request.form['loanPeriod'],
-                'Annual Interest Rate (%)': request.form['annualInterest'],
-                'Monthly Principal Reduction (%)': request.form['monthlyPrincipalReduction'],
-                'Total Interest Reduction (%)': request.form['totalInterestReduction'],
-                'Guarantor Name': request.form['guarantorName'],
-                'Guarantor Reference Number': request.form['guarantorRef'],
+                'Customer Reference Number': request.form.get('customerRef', ''),
+                'Customer Name': request.form.get('customerName', ''),
+                'City, State': request.form.get('cityState', ''),
+                'Purchase Value (in words)': request.form.get('purchaseValue', ''),
+                'Purchase Value Reduction (%)': request.form.get('purchaseReduction', '0'),
+                'Down Payment (%)': request.form.get('downPayment', '0'),
+                'Loan Period (Years)': request.form.get('loanPeriod', '0'),
+                'Annual Interest Rate (%)': request.form.get('annualInterest', '0'),
+                'Monthly Principal Reduction (%)': request.form.get('monthlyPrincipalReduction', '0'),
+                'Total Interest Reduction (%)': request.form.get('totalInterestReduction', '0'),
+                'Guarantor Name': request.form.get('guarantorName', ''),
+                'Guarantor Reference Number': request.form.get('guarantorRef', ''),
             }
             
             formatted_data = calculate_loan_details(raw_data)
@@ -304,18 +357,18 @@ def edit(index):
 def update(index):
     try:
         raw_data = {
-            'Customer Reference Number': request.form['customerRef'],
-            'Customer Name': request.form['customerName'],
-            'City, State': request.form['cityState'],
-            'Purchase Value (in words)': request.form['purchaseValue'],
-            'Purchase Value Reduction (%)': request.form['purchaseReduction'],
-            'Down Payment (%)': request.form['downPayment'],
-            'Loan Period (Years)': request.form['loanPeriod'],
-            'Annual Interest Rate (%)': request.form['annualInterest'],
-            'Monthly Principal Reduction (%)': request.form['monthlyPrincipalReduction'],
-            'Total Interest Reduction (%)': request.form['totalInterestReduction'],
-            'Guarantor Name': request.form['guarantorName'],
-            'Guarantor Reference Number': request.form['guarantorRef'],
+            'Customer Reference Number': request.form.get('customerRef', ''),
+            'Customer Name': request.form.get('customerName', ''),
+            'City, State': request.form.get('cityState', ''),
+            'Purchase Value (in words)': request.form.get('purchaseValue', ''),
+            'Purchase Value Reduction (%)': request.form.get('purchaseReduction', '0'),
+            'Down Payment (%)': request.form.get('downPayment', '0'),
+            'Loan Period (Years)': request.form.get('loanPeriod', '0'),
+            'Annual Interest Rate (%)': request.form.get('annualInterest', '0'),
+            'Monthly Principal Reduction (%)': request.form.get('monthlyPrincipalReduction', '0'),
+            'Total Interest Reduction (%)': request.form.get('totalInterestReduction', '0'),
+            'Guarantor Name': request.form.get('guarantorName', ''),
+            'Guarantor Reference Number': request.form.get('guarantorRef', ''),
         }
         
         formatted_data = calculate_loan_details(raw_data)
@@ -359,7 +412,12 @@ def delete():
 
 @app.route('/download')
 def download():
-    return send_from_directory(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx', as_attachment=True)
+    try:
+        return send_from_directory(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx', as_attachment=True)
+    except Exception as e:
+        return render_template('submit.html', 
+                            message=f"Error downloading file: {str(e)}", 
+                            entries=load_data())
 
 if __name__ == '__main__':
     app.run(debug=True)
