@@ -88,8 +88,24 @@
             display: inline-block;
             margin-top: 20px;
         }
+        .btn-delete-selected {
+            background-color: #d9534f;
+            color: white;
+            padding: 8px 15px;
+            margin: 10px 0;
+        }
         .text-center {
             text-align: center;
+        }
+        .select-checkbox {
+            text-align: center;
+            width: 40px;
+        }
+        .select-all-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
         }
     </style>
 </head>
@@ -104,35 +120,51 @@
         {% endif %}
         
         {% if entries %}
-        <table>
-            <thead>
-                <tr>
-                    <th>Ref Number</th>
-                    <th>Customer Name</th>
-                    <th>City, State</th>
-                    <th>Purchase & Down</th>
-                    <th>Loan Period & Interest</th>
-                    <th>Loan Amount</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in entries %}
-                <tr>
-                    <td>{{ entry['Customer Reference Number'] }}</td>
-                    <td>{{ entry['Customer Name'] }}</td>
-                    <td>{{ entry['City, State'] }}</td>
-                    <td>{{ entry['Purchase Value and Down Payment'] }}</td>
-                    <td>{{ entry['Loan Period and Annual Interest'] }}</td>
-                    <td>{{ entry['Loan amount and principal'] }}</td>
-                    <td class="actions">
-                        <a href="/edit/{{ loop.index0 }}" class="btn btn-edit">Edit</a>
-                        <a href="/delete/{{ loop.index0 }}" class="btn btn-delete">Delete</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <form method="post" action="{{ url_for('delete') }}">
+            <button type="submit" class="btn btn-delete-selected">Delete Selected</button>
+            
+            <table>
+                <thead>
+                    <tr>
+                        <th>S.no</th>
+                        <th>Submitted Date & Time</th>
+                        <th>Ref Number</th>
+                        <th>Customer Name</th>
+                        <th>City, State</th>
+                        <th>Purchase & Down</th>
+                        <th>Loan Period & Interest</th>
+                        <th>Loan Amount</th>
+                        <th>Actions</th>
+                        <th class="select-checkbox">
+                            <div class="select-all-container">
+                                <input type="checkbox" id="select-all">
+                                <label for="select-all">All</label>
+                            </div>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in entries %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ entry['SubmissionDateTime'] }}</td>
+                        <td>{{ entry['Customer Reference Number'] }}</td>
+                        <td>{{ entry['Customer Name'] }}</td>
+                        <td>{{ entry['City, State'] }}</td>
+                        <td>{{ entry['Purchase Value and Down Payment'] }}</td>
+                        <td>{{ entry['Loan Period and Annual Interest'] }}</td>
+                        <td>{{ entry['Loan amount and principal'] }}</td>
+                        <td class="actions">
+                            <a href="/edit/{{ loop.index0 }}" class="btn btn-edit">Edit</a>
+                        </td>
+                        <td class="select-checkbox">
+                            <input type="checkbox" name="delete_ids" value="{{ loop.index0 }}" class="row-checkbox">
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </form>
         {% else %}
         <p>No loan entries found.</p>
         {% endif %}
@@ -141,6 +173,16 @@
             <a href="/" class="btn btn-back">Back to Form</a>
             <a href="/download" class="btn btn-download">Download Excel</a>
         </div>
+
+        <script>
+            // Select all checkboxes functionality
+            document.getElementById('select-all').addEventListener('change', function() {
+                const checkboxes = document.querySelectorAll('.row-checkbox');
+                checkboxes.forEach(checkbox => {
+                    checkbox.checked = this.checked;
+                });
+            });
+        </script>
     </div>
 </body>
 </html>
