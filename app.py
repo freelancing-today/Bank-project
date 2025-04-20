@@ -102,10 +102,16 @@ def format_reference_number(ref_num):
     """Format reference number according to business rules"""
     if not isinstance(ref_num, str):
         ref_num = str(ref_num)
-    cleaned = re.sub(r'\s+', '', ref_num)
+
+    # Remove line breaks and join last character of the first line with the first character of the second line
+    ref_num = ref_num.replace('\n', '').replace('\r', '')
+
+    # Check if spaces exist in the reference number
     if ' ' in ref_num:
-        return '   '.join(cleaned)
-    return cleaned
+        # Replace single spaces with three spaces
+        return '   '.join(ref_num.split())
+
+    return ref_num
 
 def format_name(name):
     """Format name according to business rules"""
@@ -203,39 +209,68 @@ def calculate_loan_details(data):
     try:
         # Convert all input values to strings first to handle potential numeric inputs
         str_data = {k: str(v) if v is not None else "" for k, v in data.items()}
-        
+
+        # Debug: Log raw input data
+        print("Raw Input Data:", str_data)
+
         purchase_value_words = str_data['Purchase Value (in words)']
         purchase_value = Decimal(words_to_number(purchase_value_words))
-        
+
+        # Debug: Log converted purchase value
+        print("Converted Purchase Value:", purchase_value)
+
         purchase_reduction = Decimal(str_data['Purchase Value Reduction (%)']) / 100
         down_payment = Decimal(str_data['Down Payment (%)']) / 100
         loan_period = Decimal(str_data['Loan Period (Years)'])
         annual_interest = Decimal(str_data['Annual Interest Rate (%)']) / 100
         monthly_principal_reduction = Decimal(str_data['Monthly Principal Reduction (%)']) / 100
         total_interest_reduction = Decimal(str_data['Total Interest Reduction (%)']) / 100
-        
-        reduced_purchase_value = purchase_value * (1 - purchase_reduction)
+
+        # Calculate reduced purchase value
+        reduced_purchase_value = purchase_value * purchase_reduction
         reduced_purchase_value = reduced_purchase_value.quantize(Decimal('0.01'))
-        purchase_value_to_enter = purchase_value * purchase_reduction
-        
-        downpayment_value = purchase_value_to_enter * down_payment
+        final_purchase_value = purchase_value - reduced_purchase_value
+
+        # Debug: Log reduced and final purchase values
+        print("Reduced Purchase Value:", reduced_purchase_value)
+        print("Final Purchase Value:", final_purchase_value)
+
+        # Calculate loan amount
+        downpayment_value = final_purchase_value * down_payment
         downpayment_value = downpayment_value.quantize(Decimal('0.01'))
-        loan_amount = purchase_value_to_enter - downpayment_value
-        
+        loan_amount = final_purchase_value - downpayment_value
+
+        # Debug: Log downpayment and loan amount
+        print("Downpayment Value:", downpayment_value)
+        print("Loan Amount:", loan_amount)
+
+        # Calculate principal
         annual_principal = loan_amount / loan_period
         annual_principal = annual_principal.quantize(Decimal('0.01'))
         monthly_principal = annual_principal / 12
         monthly_principal = monthly_principal.quantize(Decimal('0.01'))
         principal_to_enter = monthly_principal * monthly_principal_reduction
         principal_to_enter = principal_to_enter.quantize(Decimal('0.01'))
-        
+
+        # Debug: Log principal calculations
+        print("Annual Principal:", annual_principal)
+        print("Monthly Principal:", monthly_principal)
+        print("Final Principal:", principal_to_enter)
+
+        # Calculate total interest
         interest_per_annum = loan_amount * annual_interest
         interest_per_annum = interest_per_annum.quantize(Decimal('0.01'))
         total_interest = interest_per_annum * loan_period
         total_interest = total_interest.quantize(Decimal('0.01'))
-        total_interest_to_enter = total_interest * total_interest_reduction
-        total_interest_to_enter = total_interest_to_enter.quantize(Decimal('0.01'))
-        
+        final_total_interest = total_interest * total_interest_reduction
+        final_total_interest = final_total_interest.quantize(Decimal('0.01'))
+
+        # Debug: Log interest calculations
+        print("Interest Per Annum:", interest_per_annum)
+        print("Total Interest:", total_interest)
+        print("Final Total Interest:", final_total_interest)
+
+        # Calculate property insurance
         loan_percent = (1 - down_payment) * 100
         if loan_percent <= 84.99:
             insurance_rate = Decimal('0.0032')
@@ -247,12 +282,17 @@ def calculate_loan_details(data):
             insurance_rate = Decimal('0.0067')
         else:
             insurance_rate = Decimal('0.0085')
-        
+
         property_insurance_annum = loan_amount * insurance_rate
         property_insurance_annum = property_insurance_annum.quantize(Decimal('0.01'))
         property_insurance_month = property_insurance_annum / 12
         property_insurance_month = property_insurance_month.quantize(Decimal('0.01'))
-        
+
+        # Debug: Log property insurance calculations
+        print("Property Insurance Per Annum:", property_insurance_annum)
+        print("Property Insurance Per Month:", property_insurance_month)
+
+        # Calculate PMI
         if 80.01 <= loan_percent <= 85 and loan_period <= 20:
             pmi_rate = Decimal('0.0019')
         elif 80.01 <= loan_percent <= 85 and loan_period > 20:
@@ -267,24 +307,29 @@ def calculate_loan_details(data):
             pmi_rate = Decimal('0.0078')
         else:
             pmi_rate = None
-        
+
         if pmi_rate is not None:
             pmi_annum = loan_amount * pmi_rate
             pmi_annum = pmi_annum.quantize(Decimal('0.01'))
         else:
             pmi_annum = "NA"
-        
+
+        # Debug: Log PMI calculations
+        print("PMI Rate:", pmi_rate)
+        print("PMI Per Annum:", pmi_annum)
+
+        # Format results
         formatted_results = {
             'SubmissionDateTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'Customer Reference Number': format_reference_number(str_data['Customer Reference Number']),
             'Customer Name': format_name(str_data['Customer Name']),
             'City, State': format_city_state(str_data['City, State']),
-            'Purchase Value and Down Payment': f"{format_currency(purchase_value_to_enter)} AND {int(down_payment*100)}%",
+            'Purchase Value and Down Payment': f"{format_currency(final_purchase_value)} AND {int(down_payment*100)}%",
             'Loan Period and Annual Interest': f"{int(loan_period)} YEARS AND {annual_interest*100:.2f}%",
             'Guarantor Name': format_name(str_data['Guarantor Name']),
             'Guarantor Reference Number': format_reference_number(str_data['Guarantor Reference Number']),
             'Loan amount and principal': f"{format_currency(loan_amount)} AND {format_currency(principal_to_enter)}",
-            'Total Interest for Loan Period and Property tax for Loan Period': f"{format_currency(total_interest_to_enter)} AND NA",
+            'Total Interest for Loan Period and Property tax for Loan Period': f"{format_currency(final_total_interest)} AND NA",
             'Property Insurance per month and PMI per annum': f"{format_currency(property_insurance_month)} AND {pmi_annum if isinstance(pmi_annum, str) else format_currency(pmi_annum)}",
             'Purchase Value (in words)': str_data['Purchase Value (in words)'],
             'Purchase Value Reduction (%)': str_data['Purchase Value Reduction (%)'],
@@ -294,9 +339,9 @@ def calculate_loan_details(data):
             'Monthly Principal Reduction (%)': str_data['Monthly Principal Reduction (%)'],
             'Total Interest Reduction (%)': str_data['Total Interest Reduction (%)'],
         }
-        
+
         return formatted_results
-    
+
     except Exception as e:
         print(f"Error in calculations: {str(e)}")
         return None
