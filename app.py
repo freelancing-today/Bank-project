@@ -2,11 +2,14 @@ from flask import Flask, render_template, request, send_from_directory, redirect
 import os
 import pandas as pd
 import re
+import json
 from decimal import Decimal, getcontext
+from datetime import datetime
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'uploads'
 app.config['EXCEL_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx')
+app.config['TIME_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'submission_times.json')
 
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -15,12 +18,47 @@ getcontext().prec = 10
 
 def load_data():
     if os.path.exists(app.config['EXCEL_FILE']):
-        return pd.read_excel(app.config['EXCEL_FILE']).to_dict('records')
+        # Load main data
+        df = pd.read_excel(app.config['EXCEL_FILE'])
+        entries = df.to_dict('records')
+        
+        # Load submission times
+        if os.path.exists(app.config['TIME_FILE']):
+            with open(app.config['TIME_FILE'], 'r') as f:
+                times = json.load(f)
+        else:
+            times = []
+        
+        # Merge with entries
+        for i, entry in enumerate(entries):
+            if i < len(times):
+                entry['SubmissionDateTime'] = times[i]
+            else:
+                # For entries without stored time, use current time
+                entry['SubmissionDateTime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        return entries
     return []
 
-def save_data(data):
-    df = pd.DataFrame(data)
+def save_data(entries):
+    # Separate data and times
+    data_to_save = []
+    times_to_save = []
+    
+    for entry in entries:
+        # Save data without datetime
+        entry_copy = entry.copy()
+        time = entry_copy.pop('SubmissionDateTime', None)
+        data_to_save.append(entry_copy)
+        times_to_save.append(time)
+    
+    # Save main data
+    df = pd.DataFrame(data_to_save)
     df.to_excel(app.config['EXCEL_FILE'], index=False)
+    
+    # Save times separately
+    with open(app.config['TIME_FILE'], 'w') as f:
+        json.dump(times_to_save, f)
 
 def format_reference_number(ref_num):
     """Format reference number according to business rules"""
@@ -184,6 +222,7 @@ def calculate_loan_details(data):
             pmi_annum = "NA"
         
         formatted_results = {
+            'SubmissionDateTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
             'Customer Reference Number': format_reference_number(data['Customer Reference Number']),
             'Customer Name': format_name(data['Customer Name']),
             'City, State': format_city_state(data['City, State']),
@@ -194,7 +233,6 @@ def calculate_loan_details(data):
             'Loan amount and principal': f"{format_currency(loan_amount)} AND {format_currency(principal_to_enter)}",
             'Total Interest for Loan Period and Property tax for Loan Period': f"{format_currency(total_interest_to_enter)} AND NA",
             'Property Insurance per month and PMI per annum': f"{format_currency(property_insurance_month)} AND {pmi_annum if isinstance(pmi_annum, str) else format_currency(pmi_annum)}",
-            # Store original values for editing
             'Purchase Value (in words)': data['Purchase Value (in words)'],
             'Purchase Value Reduction (%)': data['Purchase Value Reduction (%)'],
             'Down Payment (%)': data['Down Payment (%)'],
@@ -242,12 +280,18 @@ def submit():
             entries.append(formatted_data)
             save_data(entries)
             
-            return render_template('submit.html', message="Data submitted successfully!", entries=entries)
+            return render_template('submit.html', 
+                                message="Data submitted successfully!", 
+                                entries=entries)
         
         except Exception as e:
-            return render_template('submit.html', message=f"Error processing data: {str(e)}", entries=load_data())
+            entries = load_data()
+            return render_template('submit.html', 
+                                message=f"Error processing data: {str(e)}", 
+                                entries=entries)
     
-    return render_template('submit.html', entries=load_data())
+    entries = load_data()
+    return render_template('submit.html', entries=entries)
 
 @app.route('/edit/<int:index>', methods=['GET'])
 def edit(index):
@@ -281,25 +325,37 @@ def update(index):
         
         entries = load_data()
         if 0 <= index < len(entries):
+            # Preserve original submission time
+            formatted_data['SubmissionDateTime'] = entries[index]['SubmissionDateTime']
             entries[index] = formatted_data
             save_data(entries)
         
-        return render_template('submit.html', message="Entry updated successfully!", entries=entries)
+        return redirect(url_for('submit'))
     
     except Exception as e:
-        return render_template('submit.html', message=f"Error updating data: {str(e)}", entries=load_data())
+        return render_template('submit.html', 
+                            message=f"Error updating data: {str(e)}", 
+                            entries=load_data())
 
-@app.route('/delete/<int:index>', methods=['GET'])
-def delete(index):
+@app.route('/delete', methods=['POST'])
+def delete():
     try:
         entries = load_data()
-        if 0 <= index < len(entries):
-            entries.pop(index)
-            save_data(entries)
-            return render_template('submit.html', message="Entry deleted successfully!", entries=entries)
-        return render_template('submit.html', message="Invalid entry index", entries=entries)
+        selected_indices = [int(i) for i in request.form.getlist('delete_ids')]
+        
+        # Delete in reverse order to maintain correct indices
+        for index in sorted(selected_indices, reverse=True):
+            if 0 <= index < len(entries):
+                entries.pop(index)
+        
+        save_data(entries)
+        
+        return redirect(url_for('submit'))
+    
     except Exception as e:
-        return render_template('submit.html', message=f"Error deleting data: {str(e)}", entries=load_data())
+        return render_template('submit.html', 
+                            message=f"Error deleting data: {str(e)}", 
+                            entries=load_data())
 
 @app.route('/download')
 def download():
