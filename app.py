@@ -1,468 +1,199 @@
-from flask import Flask, render_template, request, send_from_directory, redirect, url_for
-import os
-import pandas as pd
+from flask import Flask, request, redirect, render_template, send_file
+from openpyxl import load_workbook
+import openpyxl
+from word2number import w2n
+from decimal import Decimal, ROUND_DOWN
 import re
-import json
-from decimal import Decimal, getcontext
-from datetime import datetime
 
 app = Flask(__name__)
-app.config['UPLOAD_FOLDER'] = 'uploads'
-app.config['EXCEL_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx')
-app.config['BACKUP_EXCEL_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'customer_loans_backup.xlsx')
-app.config['TIME_FILE'] = os.path.join(app.config['UPLOAD_FOLDER'], 'submission_times.json')
+EXCEL_FILE = "output.xlsx"
+# --- Formatting Utilities ---
+def format_reference_number(reference_number):
+    reference_number = reference_number.replace('\n', '').replace('\r', '')
+    parts = reference_number.split()
+    return '   '.join(parts)
 
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# Set decimal precision
-getcontext().prec = 10
-
-def load_data():
-    entries = []
-    times = []
-    
-    # Try to load times first
-    if os.path.exists(app.config['TIME_FILE']):
-        try:
-            with open(app.config['TIME_FILE'], 'r') as f:
-                times = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            times = []
-    
-    # Try to load Excel data
-    if os.path.exists(app.config['EXCEL_FILE']):
-        try:
-            df = pd.read_excel(app.config['EXCEL_FILE'])
-            entries = df.to_dict('records')
-        except Exception as e:
-            print(f"Error loading Excel file: {str(e)}")
-            # Try backup file if main file is corrupted
-            if os.path.exists(app.config['BACKUP_EXCEL_FILE']):
-                try:
-                    df = pd.read_excel(app.config['BACKUP_EXCEL_FILE'])
-                    entries = df.to_dict('records')
-                except Exception as backup_e:
-                    print(f"Error loading backup Excel file: {str(backup_e)}")
-                    entries = []
-    
-    # Merge with entries
-    for i, entry in enumerate(entries):
-        if i < len(times):
-            entry['SubmissionDateTime'] = times[i]
-        else:
-            # For entries without stored time, use current time
-            entry['SubmissionDateTime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    return entries
-
-def save_data(entries):
-    if not entries:
-        return
-    
-    # Create backup of current file if it exists
-    if os.path.exists(app.config['EXCEL_FILE']):
-        try:
-            os.replace(app.config['EXCEL_FILE'], app.config['BACKUP_EXCEL_FILE'])
-        except Exception as e:
-            print(f"Error creating backup: {str(e)}")
-    
-    # Separate data and times
-    data_to_save = []
-    times_to_save = []
-    
-    for entry in entries:
-        # Save data without datetime
-        entry_copy = entry.copy()
-        time = entry_copy.pop('SubmissionDateTime', None)
-        data_to_save.append(entry_copy)
-        times_to_save.append(time)
-    
-    # Save main data
-    try:
-        df = pd.DataFrame(data_to_save)
-        df.to_excel(app.config['EXCEL_FILE'], index=False)
-    except Exception as e:
-        print(f"Error saving Excel file: {str(e)}")
-        # Try to restore from backup if save failed
-        if os.path.exists(app.config['BACKUP_EXCEL_FILE']):
-            try:
-                os.replace(app.config['BACKUP_EXCEL_FILE'], app.config['EXCEL_FILE'])
-            except Exception as restore_e:
-                print(f"Error restoring from backup: {str(restore_e)}")
-        raise
-    
-    # Save times separately
-    try:
-        with open(app.config['TIME_FILE'], 'w') as f:
-            json.dump(times_to_save, f)
-    except Exception as e:
-        print(f"Error saving times file: {str(e)}")
-
-def format_reference_number(ref_num):
-    """Format reference number according to business rules"""
-    if not isinstance(ref_num, str):
-        ref_num = str(ref_num)
-
-    # Remove line breaks and join last character of the first line with the first character of the second line
-    ref_num = ref_num.replace('\n', '').replace('\r', '')
-
-    # Check if spaces exist in the reference number
-    if ' ' in ref_num:
-        # Replace single spaces with three spaces
-        return '   '.join(ref_num.split())
-
-    return ref_num
+def format_gaurantor_number(gaurantor_number):
+    gaurantor_number = gaurantor_number.replace('\n', '').replace('\r', '')
+    parts = gaurantor_number.split()
+    return '   '.join(parts)
 
 def format_name(name):
-    """Format name according to business rules"""
-    if not isinstance(name, str):
-        name = str(name)
-    name = name.upper()
-    parts = re.split(r'\.|\s+', name)
-    parts = [p for p in parts if p]
-    if len(parts) >= 3:
-        return f"{parts[0]}.{parts[1]}  {parts[2]}  {'  '.join(parts[3:])}"
-    return '  '.join(parts)
+    parts = name.strip().upper().split()
+    return "  ".join(parts)
 
-def format_city_state(city_state):
-    """Format city and state according to business rules"""
-    if not isinstance(city_state, str):
-        city_state = str(city_state)
-    city_state = city_state.upper()
-    if 'DC' in city_state:
-        return 'NA'
-    if ',' in city_state:
-        city, state = city_state.split(',')
-        return f"{city.strip()} , {state.strip()}"
-    return city_state
+def format_ref(ref):
+    return ref.replace(" ", "   ").replace("\n", "")
 
-def words_to_number(words):
-    """Convert written numbers to numeric values"""
-    if not isinstance(words, str):
-        return 0
-    
-    word_to_num = {
-        'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
-        'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
-        'ten': 10, 'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14,
-        'fifteen': 15, 'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19,
-        'twenty': 20, 'thirty': 30, 'forty': 40, 'fifty': 50,
-        'sixty': 60, 'seventy': 70, 'eighty': 80, 'ninety': 90,
-        'hundred': 100, 'thousand': 1000, 'million': 1000000,
-        'billion': 1000000000, 'trillion': 1000000000000
-    }
-    
-    words = words.lower().replace('-', ' ').replace(' and ', ' ').split()
-    number = 0
-    current = 0
-    
-    for word in words:
-        if word in word_to_num:
-            num = word_to_num[word]
-            if num == 100:
-                current *= num
-            elif num >= 1000:
-                current *= num
-                number += current
-                current = 0
-            else:
-                current += num
-        elif word == 'cents':
-            break
-    
-    number += current
-    return number
+def format_city_state(cs):
+    parts = cs.strip().upper().split(',')
+    if len(parts) == 2:
+        return f"{parts[0].strip()} , {parts[1].strip()}"
+    return cs.upper()
 
-def format_currency(value):
-    """Format currency with commas and spaces as per business rules"""
-    if pd.isna(value) or value == 0:
-        return "NA"
-    
-    try:
-        value = Decimal(str(value))
-        int_part = int(value)
-        dec_part = value - int_part
-        
-        str_value = f"{int_part:,}"
-        parts = str_value.split(',')
-        
-        formatted_parts = []
-        for i, part in enumerate(parts):
-            if len(parts) - i == 4:
-                formatted_parts.append(f"  {part}  ,")
-            elif len(parts) - i == 3:
-                formatted_parts.append(f"  {part}  ,")
-            elif len(parts) - i == 2:
-                formatted_parts.append(f"  {part}  ,")
-            else:
-                formatted_parts.append(part)
-        
-        formatted_int = ''.join(formatted_parts).strip(',')
-        formatted_dec = f"{dec_part:.2f}"[1:] if dec_part else ".00"
-        
-        return f"$  {formatted_int}{formatted_dec}"
-    except:
-        return "NA"
+def format_currency(val):
+    s = f"{val:,.2f}"
+    return "$  " + s.replace(",", " , ")
 
-def calculate_loan_details(data):
-    """Perform all loan calculations based on input data"""
-    try:
-        # Convert all input values to strings first to handle potential numeric inputs
-        str_data = {k: str(v) if v is not None else "" for k, v in data.items()}
+def format_percent(val):
+    return f"{val:.2f} %"
 
-        # Debug: Log raw input data
-        print("Raw Input Data:", str_data)
+# --- Alphanumeric to Numeric Conversion ---
 
-        purchase_value_words = str_data['Purchase Value (in words)']
-        purchase_value = Decimal(words_to_number(purchase_value_words))
 
-        # Debug: Log converted purchase value
-        print("Converted Purchase Value:", purchase_value)
+# --- Verified Manual Calculation ---
+def calculate_all(purchase_value, pur_red_pct, down_pct, loan_period, interest_pct, mon_prin_red_pct, total_int_red_pct):
+    reduced = purchase_value * (pur_red_pct / 100)
+    reduced = float(Decimal(reduced).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+    final_purchase = purchase_value - reduced
+    final_purchase = float(Decimal(final_purchase).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
-        purchase_reduction = Decimal(str_data['Purchase Value Reduction (%)']) / 100
-        down_payment = Decimal(str_data['Down Payment (%)']) / 100
-        loan_period = Decimal(str_data['Loan Period (Years)'])
-        annual_interest = Decimal(str_data['Annual Interest Rate (%)']) / 100
-        monthly_principal_reduction = Decimal(str_data['Monthly Principal Reduction (%)']) / 100
-        total_interest_reduction = Decimal(str_data['Total Interest Reduction (%)']) / 100
+    down_payment = final_purchase * (down_pct / 100)
+    down_payment = float(Decimal(down_payment).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
+    loan_amt = final_purchase - down_payment
+    loan_amt = float(Decimal(loan_amt).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
-        # Calculate reduced purchase value
-        reduced_purchase_value = purchase_value * purchase_reduction
-        reduced_purchase_value = reduced_purchase_value.quantize(Decimal('0.01'))
-        final_purchase_value = purchase_value - reduced_purchase_value
+    annual = loan_amt / loan_period
+    monthly = annual / 12
+    principal = monthly * (mon_prin_red_pct / 100)
+    principal = float(Decimal(principal).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
-        # Debug: Log reduced and final purchase values
-        print("Reduced Purchase Value:", reduced_purchase_value)
-        print("Final Purchase Value:", final_purchase_value)
+    annual_interest = loan_amt * (interest_pct / 100)
+    total_interest = annual_interest * loan_period
+    final_interest = total_interest * (total_int_red_pct / 100)
+    final_interest = float(Decimal(final_interest).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
-        # Calculate loan amount
-        downpayment_value = final_purchase_value * down_payment
-        downpayment_value = downpayment_value.quantize(Decimal('0.01'))
-        loan_amount = final_purchase_value - downpayment_value
+    insurance = loan_amt * 0.0032
+    insurance_monthly = insurance / 12
+    insurance_monthly = float(Decimal(insurance_monthly).quantize(Decimal("0.01"), rounding=ROUND_DOWN))
 
-        # Debug: Log downpayment and loan amount
-        print("Downpayment Value:", downpayment_value)
-        print("Loan Amount:", loan_amount)
+    loan_pct = 100 - down_pct
+    if loan_pct <= 80 or loan_period > 20:
+        pmi = "NA"
+    else:
+        pmi_rate = 0.19 if 80.01 <= loan_pct <= 85 else 0.23 if 85.01 <= loan_pct <= 90 else 0.26 if 90.01 <= loan_pct <= 95 else "NA"
+        pmi = format_currency(loan_amt * (pmi_rate / 100)) if isinstance(pmi_rate, float) else "NA"
 
-        # Calculate principal
-        annual_principal = loan_amount / loan_period
-        annual_principal = annual_principal.quantize(Decimal('0.01'))
-        monthly_principal = annual_principal / 12
-        monthly_principal = monthly_principal.quantize(Decimal('0.01'))
-        principal_to_enter = monthly_principal * monthly_principal_reduction
-        principal_to_enter = principal_to_enter.quantize(Decimal('0.01'))
+    return {
+        "final_purchase": final_purchase,
+        "down_payment": down_payment,
+        "loan_amt": loan_amt,
+        "principal": principal,
+        "final_interest": final_interest,
+        "insurance_monthly": insurance_monthly,
+        "pmi": pmi
+    } 
+# --- Flask Routes ---
+@app.route("/")
+def home():
+    return render_template("form.html")  # Use render_template to load the form.html file
 
-        # Debug: Log principal calculations
-        print("Annual Principal:", annual_principal)
-        print("Monthly Principal:", monthly_principal)
-        print("Final Principal:", principal_to_enter)
-
-        # Calculate total interest
-        interest_per_annum = loan_amount * annual_interest
-        interest_per_annum = interest_per_annum.quantize(Decimal('0.01'))
-        total_interest = interest_per_annum * loan_period
-        total_interest = total_interest.quantize(Decimal('0.01'))
-        final_total_interest = total_interest * total_interest_reduction
-        final_total_interest = final_total_interest.quantize(Decimal('0.01'))
-
-        # Debug: Log interest calculations
-        print("Interest Per Annum:", interest_per_annum)
-        print("Total Interest:", total_interest)
-        print("Final Total Interest:", final_total_interest)
-
-        # Calculate property insurance
-        loan_percent = (1 - down_payment) * 100
-        if loan_percent <= 84.99:
-            insurance_rate = Decimal('0.0032')
-        elif loan_percent <= 85:
-            insurance_rate = Decimal('0.0021')
-        elif loan_percent <= 90:
-            insurance_rate = Decimal('0.0041')
-        elif loan_percent <= 95:
-            insurance_rate = Decimal('0.0067')
-        else:
-            insurance_rate = Decimal('0.0085')
-
-        property_insurance_annum = loan_amount * insurance_rate
-        property_insurance_annum = property_insurance_annum.quantize(Decimal('0.01'))
-        property_insurance_month = property_insurance_annum / 12
-        property_insurance_month = property_insurance_month.quantize(Decimal('0.01'))
-
-        # Debug: Log property insurance calculations
-        print("Property Insurance Per Annum:", property_insurance_annum)
-        print("Property Insurance Per Month:", property_insurance_month)
-
-        # Calculate PMI
-        if 80.01 <= loan_percent <= 85 and loan_period <= 20:
-            pmi_rate = Decimal('0.0019')
-        elif 80.01 <= loan_percent <= 85 and loan_period > 20:
-            pmi_rate = Decimal('0.0032')
-        elif 85.01 <= loan_percent <= 90 and loan_period <= 20:
-            pmi_rate = Decimal('0.0023')
-        elif 85.01 <= loan_percent <= 90 and loan_period > 20:
-            pmi_rate = Decimal('0.0052')
-        elif 90.01 <= loan_percent <= 95 and loan_period <= 20:
-            pmi_rate = Decimal('0.0026')
-        elif 90.01 <= loan_percent <= 95 and loan_period > 20:
-            pmi_rate = Decimal('0.0078')
-        else:
-            pmi_rate = None
-
-        if pmi_rate is not None:
-            pmi_annum = loan_amount * pmi_rate
-            pmi_annum = pmi_annum.quantize(Decimal('0.01'))
-        else:
-            pmi_annum = "NA"
-
-        # Debug: Log PMI calculations
-        print("PMI Rate:", pmi_rate)
-        print("PMI Per Annum:", pmi_annum)
-
-        # Format results
-        formatted_results = {
-            'SubmissionDateTime': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'Customer Reference Number': format_reference_number(str_data['Customer Reference Number']),
-            'Customer Name': format_name(str_data['Customer Name']),
-            'City, State': format_city_state(str_data['City, State']),
-            'Purchase Value and Down Payment': f"{format_currency(final_purchase_value)} AND {int(down_payment*100)}%",
-            'Loan Period and Annual Interest': f"{int(loan_period)} YEARS AND {annual_interest*100:.2f}%",
-            'Guarantor Name': format_name(str_data['Guarantor Name']),
-            'Guarantor Reference Number': format_reference_number(str_data['Guarantor Reference Number']),
-            'Loan amount and principal': f"{format_currency(loan_amount)} AND {format_currency(principal_to_enter)}",
-            'Total Interest for Loan Period and Property tax for Loan Period': f"{format_currency(final_total_interest)} AND NA",
-            'Property Insurance per month and PMI per annum': f"{format_currency(property_insurance_month)} AND {pmi_annum if isinstance(pmi_annum, str) else format_currency(pmi_annum)}",
-            'Purchase Value (in words)': str_data['Purchase Value (in words)'],
-            'Purchase Value Reduction (%)': str_data['Purchase Value Reduction (%)'],
-            'Down Payment (%)': str_data['Down Payment (%)'],
-            'Loan Period (Years)': str_data['Loan Period (Years)'],
-            'Annual Interest Rate (%)': str_data['Annual Interest Rate (%)'],
-            'Monthly Principal Reduction (%)': str_data['Monthly Principal Reduction (%)'],
-            'Total Interest Reduction (%)': str_data['Total Interest Reduction (%)'],
-        }
-
-        return formatted_results
-
-    except Exception as e:
-        print(f"Error in calculations: {str(e)}")
-        return None
-
-@app.route('/')
-def index():
-    return render_template('form.html')
-
-@app.route('/submit', methods=['GET', 'POST'])
+@app.route("/submit", methods=["GET", "POST"])
 def submit():
-    if request.method == 'POST':
+    if request.method == "GET":
         try:
-            raw_data = {
-                'Customer Reference Number': request.form.get('customerRef', ''),
-                'Customer Name': request.form.get('customerName', ''),
-                'City, State': request.form.get('cityState', ''),
-                'Purchase Value (in words)': request.form.get('purchaseValue', ''),
-                'Purchase Value Reduction (%)': request.form.get('purchaseReduction', '0'),
-                'Down Payment (%)': request.form.get('downPayment', '0'),
-                'Loan Period (Years)': request.form.get('loanPeriod', '0'),
-                'Annual Interest Rate (%)': request.form.get('annualInterest', '0'),
-                'Monthly Principal Reduction (%)': request.form.get('monthlyPrincipalReduction', '0'),
-                'Total Interest Reduction (%)': request.form.get('totalInterestReduction', '0'),
-                'Guarantor Name': request.form.get('guarantorName', ''),
-                'Guarantor Reference Number': request.form.get('guarantorRef', ''),
-            }
-            
-            formatted_data = calculate_loan_details(raw_data)
-            
-            if not formatted_data:
-                raise ValueError("Failed to process loan data")
-            
-            entries = load_data()
-            entries.append(formatted_data)
-            save_data(entries)
-            
-            return render_template('submit.html', 
-                                message="Data submitted successfully!", 
-                                entries=entries)
-        
-        except Exception as e:
-            entries = load_data()
-            return render_template('submit.html', 
-                                message=f"Error processing data: {str(e)}", 
-                                entries=entries)
+            wb = load_workbook(EXCEL_FILE)
+            ws = wb.active
+            if ws.max_row <= 1:  # Check if there are no entries (only header row exists)
+                return "NO LOAN ENTRIES FOUND"
+        except FileNotFoundError:
+            return "NO LOAN ENTRIES FOUND"
+        return render_template("submit.html")  # Render the page for GET requests
+
+    # Handle POST request
+    data = request.form
+
+    customer_ref = format_ref(data['customerRef'])
+    customer_name = format_name(data['customerName'])
+    city_state = format_city_state(data['cityState'])
+    guarantor_name = format_name(data['guarantorName'])
+    guarantor_ref = format_ref(data['guarantorRef'])
+
+    purchase_value_words = request.form['purchaseValue']
+    purchase_reduction = float(request.form['purchaseReduction'])
+
+    # Clean the input (e.g., "$ ... dollars and ... cents")
+    cleaned = purchase_value_words.lower().replace("$", "").replace("dollars", "").replace("and", "").replace("cents", "").strip()
     
-    entries = load_data()
-    return render_template('submit.html', entries=entries)
+    # Split integer and decimal parts
+    if 'point' in cleaned:
+        words_parts = cleaned.split("point")
+        int_part = w2n.word_to_num(words_parts[0].strip())
+        dec_part = float("0." + ''.join(words_parts[1].split()))
+    elif 'dot' in cleaned:
+        words_parts = cleaned.split("dot")
+        int_part = w2n.word_to_num(words_parts[0].strip())
+        dec_part = float("0." + ''.join(words_parts[1].split()))
+    else:
+        words_parts = cleaned.split()
+        if 'cent' in words_parts:
+            idx = words_parts.index('cent')
+            int_part = w2n.word_to_num(" ".join(words_parts[:idx]))
+            dec_part = float("0." + ''.join(words_parts[idx+1:]))
+        else:
+            int_part = w2n.word_to_num(cleaned)
+            dec_part = 0.0
 
-@app.route('/edit/<int:index>', methods=['GET'])
-def edit(index):
-    entries = load_data()
-    if 0 <= index < len(entries):
-        return render_template('edit.html', entry=entries[index], index=index)
-    return redirect(url_for('submit'))
+    numeric_value = int_part + dec_part
+    purchase_value = numeric_value
+    # Apply reduction
+    reduction_amount = (numeric_value * purchase_reduction) / 100
+    reduction_amount = float(str(reduction_amount)[:str(reduction_amount).find('.') + 3])  # precise 2 decimals
 
-@app.route('/update/<int:index>', methods=['POST'])
-def update(index):
+    final_value = numeric_value - reduction_amount
+    final_value = float(str(final_value)[:str(final_value).find('.') + 3])
+
+    pur_red = float(data["purchaseReduction"])  # Purchase reduction percentage
+    down_pct = float(data["downPayment"])  # Down payment percentage
+    loan_years = int(data["loanPeriod"])  # Loan period (years)
+    interest = float(data["annualInterest"])  # Annual interest percentage
+    mon_prin_red = float(data["monthlyPrincipalReduction"])  # Monthly principal reduction percentage
+    total_int_red = float(data["totalInterestReduction"])  # Total interest reduction percentage
+
+    # Perform all calculations
+    calcs = calculate_all(purchase_value, pur_red, down_pct, loan_years, interest, mon_prin_red, total_int_red)
+
+    # Load the Excel workbook and prepare for saving the results
     try:
-        raw_data = {
-            'Customer Reference Number': request.form.get('customerRef', ''),
-            'Customer Name': request.form.get('customerName', ''),
-            'City, State': request.form.get('cityState', ''),
-            'Purchase Value (in words)': request.form.get('purchaseValue', ''),
-            'Purchase Value Reduction (%)': request.form.get('purchaseReduction', '0'),
-            'Down Payment (%)': request.form.get('downPayment', '0'),
-            'Loan Period (Years)': request.form.get('loanPeriod', '0'),
-            'Annual Interest Rate (%)': request.form.get('annualInterest', '0'),
-            'Monthly Principal Reduction (%)': request.form.get('monthlyPrincipalReduction', '0'),
-            'Total Interest Reduction (%)': request.form.get('totalInterestReduction', '0'),
-            'Guarantor Name': request.form.get('guarantorName', ''),
-            'Guarantor Reference Number': request.form.get('guarantorRef', ''),
-        }
-        
-        formatted_data = calculate_loan_details(raw_data)
-        
-        if not formatted_data:
-            raise ValueError("Failed to process loan data")
-        
-        entries = load_data()
-        if 0 <= index < len(entries):
-            # Preserve original submission time
-            formatted_data['SubmissionDateTime'] = entries[index]['SubmissionDateTime']
-            entries[index] = formatted_data
-            save_data(entries)
-        
-        return redirect(url_for('submit'))
-    
-    except Exception as e:
-        return render_template('submit.html', 
-                            message=f"Error updating data: {str(e)}", 
-                            entries=load_data())
+        wb = load_workbook(EXCEL_FILE)
+    except FileNotFoundError:
+        # Create a new Excel file if it doesn't exist
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Entrier Name", "Customer Ref", "Customer Name", "City, State", "Purchase Value and Down Payment", "Loan Period and Annual Interest", "Guarantor Name", "Guarantor Ref", "Loan Amount and Principal", "Total Interest and Property Tax", "Property Insurance and PMI"])
+        wb.save(EXCEL_FILE)
+    ws = wb.active
+    row = ws.max_row + 1
+    wb = openpyxl.load_workbook(EXCEL_FILE)
+    ws = wb.active
+    next_row = ws.max_row + 1
+    ws.cell(row=next_row, column=4).value = final_value
+    wb.save(EXCEL_FILE)
 
-@app.route('/delete', methods=['POST'])
-def delete():
-    try:
-        entries = load_data()
-        selected_indices = [int(i) for i in request.form.getlist('delete_ids')]
-        
-        # Delete in reverse order to maintain correct indices
-        for index in sorted(selected_indices, reverse=True):
-            if 0 <= index < len(entries):
-                entries.pop(index)
-        
-        save_data(entries)
-        
-        return redirect(url_for('submit'))
-    
-    except Exception as e:
-        return render_template('submit.html', 
-                            message=f"Error deleting data: {str(e)}", 
-                            entries=load_data())
+    # Convert down payment to integer before saving to Excel
+    down_payment_amount = int(data['downPayment'])
 
-@app.route('/download')
+    # Write results to the Excel file
+    ws.cell(row=row, column=1, value=customer_ref)
+    ws.cell(row=row, column=2, value=customer_name)
+    ws.cell(row=row, column=3, value=city_state)
+    ws.cell(row=row, column=4, value=f"{format_currency(calcs['final_purchase'])} AND {down_payment_amount}")
+    ws.cell(row=row, column=5, value=f"{loan_years} YEARS AND {format_percent(interest)}")
+    ws.cell(row=row, column=6, value=guarantor_name)
+    ws.cell(row=row, column=7, value=guarantor_ref)
+    ws.cell(row=row, column=8, value=f"{format_currency(calcs['loan_amt'])} AND {format_currency(calcs['principal'])}")
+    ws.cell(row=row, column=9, value=f"{format_currency(calcs['final_interest'])} AND")
+    ws.cell(row=row, column=10, value=f"{format_currency(calcs['insurance_monthly'])} AND {calcs['pmi']}")
+
+    wb.save(EXCEL_FILE)
+    return redirect("/")
+
+@app.route("/download", methods=["GET"])
 def download():
     try:
-        return send_from_directory(app.config['UPLOAD_FOLDER'], 'customer_loans.xlsx', as_attachment=True)
-    except Exception as e:
-        return render_template('submit.html', 
-                            message=f"Error downloading file: {str(e)}", 
-                            entries=load_data())
+        return send_file("output.xlsx", as_attachment=True)
+    except FileNotFoundError:
+        return "The requested file was not found on the server.", 404
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)

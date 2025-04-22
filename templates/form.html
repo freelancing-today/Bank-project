@@ -4,110 +4,194 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Loan Calculator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3f37c9;
+            --success: #4cc9f0;
+            --danger: #f72585;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --border-radius: 0.375rem;
+            --box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s ease;
+        }
+        
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Roboto', sans-serif;
             line-height: 1.6;
             margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
+            padding: 0;
+            background: url('https://media.istockphoto.com/id/1334591614/photo/man-using-digital-tablet-online-connect-to-internet-banking-currency-exchange-online-shopping.jpg?s=612x612&w=0&k=20&c=nejA5SuHcN2fAdO7Bkaf9pJrwzyLPBCyOLZgMaslGko=') no-repeat center center fixed;
+            background-size: cover;
+            color: var(--dark);
         }
+        
         .container {
-            max-width: 800px;
-            margin: 0 auto;
+            max-width: 900px;
+            margin: 2rem auto;
             background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            padding: 2rem;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
         }
+        
         h1 {
             text-align: center;
-            color: #333;
+            color: var(--primary);
+            margin-bottom: 1.5rem;
+            font-weight: 500;
         }
+        
         .form-group {
-            margin-bottom: 15px;
+            margin-bottom: 1.25rem;
         }
+        
         label {
             display: block;
-            margin-bottom: 5px;
-            font-weight: bold;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #495057;
         }
+        
         input[type="text"],
         input[type="number"],
         select {
             width: 100%;
-            padding: 8px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
+            padding: 0.75rem;
+            border: 1px solid #ced4da;
+            border-radius: var(--border-radius);
             box-sizing: border-box;
+            font-family: inherit;
+            font-size: 1rem;
+            transition: var(--transition);
         }
+        
+        input[type="text"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+        }
+        
         .btn {
-            background-color: #4CAF50;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
+            display: inline-block;
+            font-weight: 400;
+            text-align: center;
+            white-space: nowrap;
+            vertical-align: middle;
+            user-select: none;
+            border: 1px solid transparent;
+            padding: 0.75rem 1.5rem;
+            font-size: 1rem;
+            line-height: 1.5;
+            border-radius: var(--border-radius);
+            transition: var(--transition);
             cursor: pointer;
-            font-size: 16px;
         }
-        .btn:hover {
-            background-color: #45a049;
+        
+        .btn-primary {
+            color: white;
+            background-color: var(--primary);
+            border-color: var(--primary);
         }
+        
+        .btn-primary:hover {
+            background-color: var(--secondary);
+            border-color: var(--secondary);
+        }
+        
+        .btn-secondary {
+            color: white;
+            background-color: #6c757d;
+            border-color: #6c757d;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #5a6268;
+            border-color: #545b62;
+        }
+        
         .row {
             display: flex;
-            gap: 15px;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
         }
+        
         .col {
             flex: 1;
+        }
+        
+        .form-actions {
+            text-align: center;
+            margin-top: 2rem;
+        }
+        
+        .form-actions .btn {
+            margin: 0 0.5rem;
+        }
+        
+        @media (max-width: 768px) {
+            .row {
+                flex-direction: column;
+                gap: 0;
+            }
+            
+            .container {
+                padding: 1.5rem;
+                margin: 1rem;
+            }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Loan Calculator</h1>
-        <form action="/submit" method="post">
+        <form action="/submit" method="POST">
             <div class="row">
                 <div class="col">
                     <div class="form-group">
-                        <label for="customerRef">Customer Reference Number:</label>
+                        <label for="customerRef">Customer Reference Number</label>
                         <input type="text" id="customerRef" name="customerRef" required>
                     </div>
                     <div class="form-group">
-                        <label for="customerName">Customer Name:</label>
+                        <label for="customerName">Customer Name</label>
                         <input type="text" id="customerName" name="customerName" required>
                     </div>
                     <div class="form-group">
-                        <label for="cityState">City, State:</label>
+                        <label for="cityState">City, State</label>
                         <input type="text" id="cityState" name="cityState" required>
                     </div>
                     <div class="form-group">
-                        <label for="purchaseValue">Purchase Value (in words):</label>
+                        <label for="purchaseValue">Purchase Value (in words)</label>
                         <input type="text" id="purchaseValue" name="purchaseValue" required>
                     </div>
                     <div class="form-group">
-                        <label for="purchaseReduction">Purchase Value Reduction (%):</label>
+                        <label for="purchaseReduction">Purchase Value Reduction (%)</label>
                         <input type="number" id="purchaseReduction" name="purchaseReduction" step="0.01" min="0" max="100" required>
                     </div>
                 </div>
                 <div class="col">
                     <div class="form-group">
-                        <label for="downPayment">Down Payment (%):</label>
-                        <input type="number" id="downPayment" name="downPayment" step="0.01" min="0" max="100" required>
+                        <label for="downPayment">Down Payment (Amount)</label>
+                        <input type="number" id="downPayment" name="downPayment" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="loanPeriod">Loan Period (Years):</label>
+                        <label for="loanPeriod">Loan Period (Years)</label>
                         <input type="number" id="loanPeriod" name="loanPeriod" min="1" required>
                     </div>
                     <div class="form-group">
-                        <label for="annualInterest">Annual Interest Rate (%):</label>
+                        <label for="annualInterest">Annual Interest Rate (%)</label>
                         <input type="number" id="annualInterest" name="annualInterest" step="0.01" min="0" required>
                     </div>
                     <div class="form-group">
-                        <label for="monthlyPrincipalReduction">Monthly Principal Reduction (%):</label>
+                        <label for="monthlyPrincipalReduction">Monthly Principal Reduction (%)</label>
                         <input type="number" id="monthlyPrincipalReduction" name="monthlyPrincipalReduction" step="0.01" min="0" max="100" required>
                     </div>
                     <div class="form-group">
-                        <label for="totalInterestReduction">Total Interest Reduction (%):</label>
+                        <label for="totalInterestReduction">Total Interest Reduction (%)</label>
                         <input type="number" id="totalInterestReduction" name="totalInterestReduction" step="0.01" min="0" max="100" required>
                     </div>
                 </div>
@@ -115,21 +199,25 @@
             <div class="row">
                 <div class="col">
                     <div class="form-group">
-                        <label for="guarantorName">Guarantor Name:</label>
+                        <label for="guarantorName">Guarantor Name</label>
                         <input type="text" id="guarantorName" name="guarantorName" required>
                     </div>
                 </div>
                 <div class="col">
                     <div class="form-group">
-                        <label for="guarantorRef">Guarantor Reference Number:</label>
+                        <label for="guarantorRef">Guarantor Reference Number</label>
                         <input type="text" id="guarantorRef" name="guarantorRef" required>
                     </div>
                 </div>
             </div>
-            <div class="form-group" style="text-align: center;">
-
-                <button type="submit" class="btn">Calculate & Submit</button>
-                <button onclick="window.location.href='{{ url_for('submit') }}'" class="btn">View table</button>            </div>
+            <div class="form-group">
+                <label for="entrierName">Entrier Name</label>
+                <input type="text" id="entrierName" name="entrierName" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Calculate & Submit</button>
+                <a href="/submit" class="btn btn-secondary">View Entries</a>
+            </div>
         </form>
     </div>
 </body>
